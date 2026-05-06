@@ -29,24 +29,12 @@ This repository hosts source code only. Simulation inputs, HDF5 outputs, and DFN
 
 The fastest path to verify the analysis is to regenerate the figures from the HDF5 outputs supplied in the Zenodo deposit. PFLOTRAN itself is not required for this step.
 
-```bash
 git clone https://github.com/Yongqiang100/co2-basalt-dfn-ReactiveTransport.git
 cd co2-basalt-dfn-ReactiveTransport
 pip install -r requirements.txt
 
-# Link to the simulation outputs in the Zenodo archive
-ln -s /path/to/zenodo/archive/dfn_library dfn_library
-mkdir pflotran_results
-for f in /path/to/zenodo/archive/pflotran_outputs/*_pflotran_co2.h5; do
-    name=$(basename "$f" _pflotran_co2.h5)
-    mkdir -p "pflotran_results/$name"
-    ln -s "$f" "pflotran_results/$name/pflotran_co2.h5"
-done
+The dfnworks, PFLOTRAN, and NetworkX are not included in the requirements.txt file. They need to be installed/compiled from their official website following the user guide files, which are subjected to continuous updating and thus not included here.
 
-python generate_figures.py
-```
-
-Output figures are written to `paper_figures/` in both PNG and PDF format.
 
 ## Reproducing the simulations
 
@@ -59,11 +47,11 @@ Reproducing the underlying simulations rather than the post-processing requires 
 The complete pipeline is then:
 
 ```bash
-python prepare_dfn.py matrix          # construct 25 DFN meshes (~30 min)
+python prepare_dfn.py matrix          # construct 25 DFN meshes 
 python verify_matrix.py               # quality control
 python run_pflotran.py --dfn all --write_only   # generate 25 PFLOTRAN inputs
 
-# PFLOTRAN simulations via mpirun (~5 hr per realization at 16 ranks)
+# PFLOTRAN simulations via mpirun 
 bash run_local.sh --nprocs 16                   # sequential, 16 MPI ranks per run
 # or, if memory permits, run several realizations concurrently:
 bash run_local.sh --parallel --nprocs 16 --max-parallel 4
@@ -86,6 +74,8 @@ python generate_figures.py --skip-3d            # omit Figs 1 and 6 (slow 3D)
 python generate_figures.py --output-dir myfigs  # custom output directory
 python generate_figures.py --help               # full options
 ```
+
+Output figures are written to `paper_figures/` in both PNG and PDF format.
 
 ## Citation
 
@@ -115,7 +105,7 @@ Use of this code or the associated data should cite both the paper and the Zenod
 
 ## License
 
-Apache License, Version 2.0 — see [LICENSE](LICENSE).
+Apache License, Version 2.0.
 
 ## External software dependencies
 
