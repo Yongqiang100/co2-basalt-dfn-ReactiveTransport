@@ -25,13 +25,28 @@ The pipeline couples stochastic discrete fracture network (DFN) generation with 
 
 This repository hosts source code only. Simulation inputs, HDF5 outputs, and DFN meshes (approximately 6–13 GB) are deposited on Zenodo.
 
-## Reproducing the published figures
+## Archived simulation results
 
-The fastest path to verify the analysis is to regenerate the figures from the HDF5 outputs supplied in the Zenodo deposit. PFLOTRAN itself is not required for this step.
+All the results are compressed as .zip files and uploaded to a Zenodo repository.
 
+The fastest path to verify the analysis is to regenerate the figures from the HDF5 outputs supplied in the Zenodo deposit. PFLOTRAN simulation itself is not required for this step.
+
+```bash
 git clone https://github.com/Yongqiang100/co2-basalt-dfn-ReactiveTransport.git
 cd co2-basalt-dfn-ReactiveTransport
 pip install -r requirements.txt
+
+# Link to the simulation outputs in the Zenodo archive
+ln -s /path/to/zenodo/archive/dfn_library dfn_library
+mkdir pflotran_results
+for f in /path/to/zenodo/archive/pflotran_outputs/*_pflotran_co2.h5; do
+    name=$(basename "$f" _pflotran_co2.h5)
+    mkdir -p "pflotran_results/$name"
+    ln -s "$f" "pflotran_results/$name/pflotran_co2.h5"
+done
+
+python generate_figures.py
+```
 
 The dfnworks and PFLOTRAN are not included in the requirements.txt file. They need to be installed/compiled from their official website following the user guide files, which are subjected to continuous updating and thus not included here.
 
