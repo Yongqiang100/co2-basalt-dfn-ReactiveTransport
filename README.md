@@ -33,7 +33,7 @@ git clone https://github.com/Yongqiang100/co2-basalt-dfn-ReactiveTransport.git
 cd co2-basalt-dfn-ReactiveTransport
 pip install -r requirements.txt
 
-The dfnworks, PFLOTRAN, and NetworkX are not included in the requirements.txt file. They need to be installed/compiled from their official website following the user guide files, which are subjected to continuous updating and thus not included here.
+The dfnworks and PFLOTRAN are not included in the requirements.txt file. They need to be installed/compiled from their official website following the user guide files, which are subjected to continuous updating and thus not included here.
 
 
 ## Reproducing the simulations
