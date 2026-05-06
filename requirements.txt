@@ -1,0 +1,23 @@
+# Python dependencies for: Fracture network connectivity controls on
+# CO2 mineral trapping efficiency in basalt (Chen et al., 2026, WRR)
+#
+# Tested with Python 3.9–3.12.
+# Install with: pip install -r requirements.txt
+
+# Core scientific stack
+numpy>=1.21
+scipy>=1.7
+matplotlib>=3.5
+h5py>=3.6
+
+# Graph analysis (used by compute_betweenness.py and stress_test_analysis.py)
+networkx>=2.8
+
+# NOTE: dfnWorks and PFLOTRAN are NOT installed via pip — they are external
+# applications. Install separately:
+#   dfnWorks: https://github.com/lanl/dfnWorks
+#   PFLOTRAN: https://www.pflotran.org/
+#
+# The Python code in this archive runs without dfnWorks or PFLOTRAN as long
+# as you only need to regenerate figures from the supplied HDF5 outputs.
+# dfnWorks and PFLOTRAN are required only if you want to rerun simulations.
