@@ -48,8 +48,6 @@ done
 python generate_figures.py
 ```
 
-The dfnworks and PFLOTRAN are not included in the requirements.txt file. They need to be installed/compiled from their official website following the user guide files, which are subjected to continuous updating and thus not included here.
-
 
 ## Reproducing the simulations
 
@@ -77,6 +75,9 @@ python generate_figures.py            # all nine manuscript figures
 ```
 
 `run_local.sh` invokes `mpirun` and auto-detects the executable; the `MPIRUN` environment variable or `--mpirun` flag can override this. The 25-realization ensemble requires approximately 125 CPU-hours in serial; concurrent execution via `--parallel` reduces wall-clock time at the cost of higher memory usage.
+
+The dfnworks and PFLOTRAN are not included in the requirements.txt file. They need to be installed/compiled from their official website following the user guide files, which are subjected to continuous updating and thus not included here.
+
 
 ## Figure generation
 
