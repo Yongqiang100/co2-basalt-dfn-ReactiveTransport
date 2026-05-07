@@ -81,7 +81,7 @@ The dfnworks and PFLOTRAN are not included in the requirements.txt file. They ne
 
 ## Figure generation
 
-`generate_figures.py` is the single entry point for all nine manuscript figures. It supersedes the earlier multi-script workflow.
+`generate_figures.py` is the single entry point for all nine manuscript figures. 
 
 ```bash
 python generate_figures.py                      # all nine figures
