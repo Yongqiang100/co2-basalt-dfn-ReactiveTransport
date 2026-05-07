@@ -4,7 +4,7 @@ Source code accompanying:
 
 > Chen, Y., Xie, Q., Kang, Q., & Regenauer-Lieb, K. (2026). Fracture network connectivity controls on CO₂ mineral trapping efficiency in basalt: A stochastic reactive transport study. *Water Resources Research*. DOI: [pending]
 
-This repository contains the active development version of the analysis pipeline. The frozen archive corresponding to the published version of the paper, including simulation outputs and DFN meshes, is deposited on Zenodo: [10.5281/zenodo.20047873](https://doi.org/10.5281/zenodo.20047873).
+This repository contains the codes to reproduce the simulations. The frozen archive corresponding to the published version of the paper, including simulation outputs and DFN meshes, is deposited on Zenodo: [10.5281/zenodo.20047873](https://doi.org/10.5281/zenodo.20047873).
 
 ## Overview
 
