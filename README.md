@@ -23,7 +23,7 @@ The pipeline couples stochastic discrete fracture network (DFN) generation with 
 | `generate_figures.py` | Single entry point producing all nine manuscript figures |
 | `generate_xdmf.py` | Optional export of PFLOTRAN HDF5 to ParaView XDMF |
 
-This repository hosts source code only. Simulation inputs, HDF5 outputs, and DFN meshes (approximately 6–13 GB) are deposited on Zenodo.
+This repository hosts source code only. Simulation inputs, HDF5 outputs, and DFN meshes (approximately 23 GB in a format of compressed .zip files) are deposited on Zenodo.
 
 ## Archived simulation results
 
