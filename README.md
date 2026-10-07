@@ -401,6 +401,17 @@ This analysis requires `runs_gravityoff_setonix_overlap/`, `runs_gravityoff_pref
 
 **Article results:** Figures 1–8 and Figures S1–S4.
 
+All figures of the article and the response letter are generated with one command, run from `<root>/revision`:
+
+```bash
+bash src/make_figures.sh               # all figures, written to figures_R2/
+bash src/make_figures.sh --skip-3d     # skips the slower 3D figures
+```
+
+`make_figures.sh` reads the runs in `runs_gravityoff/` and the DFN library in `../dfn_library`. It selects the two networks of Figure 6, the evolving-aperture networks at P32 × 1.00 with the highest and lowest carbonate per cell at 50 years, and calls `generate_figures.py`, `fig_study_design.py`, `fig_cations.py`, `prepare_figure_inputs.py` and `ensemble_statistics_figures.py`. The figures are written to `figures_R2/` for review before they are copied into `figures/`.
+
+Individual figures are generated with the following commands:
+
 ```bash
 python3 src/fig_study_design.py --out figures/fig_study_design.pdf                                   # Figure 1
 python3 src/generate_figures.py --results-dir runs_gravityoff --dfn-dir ../dfn_library --output-dir figures   # Figures 2 to 8, S1 to S4
