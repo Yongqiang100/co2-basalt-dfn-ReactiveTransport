@@ -26,13 +26,15 @@ The principal findings are:
 
 | Path | Purpose |
 |---|---|
-| `prepare_dfn.py` | DFN generation and meshing via dfnWorks |
+| `prepare_dfn.py` | DFN generation and meshing via dfnWorks (Steps B1 and B2) |
+| `run_pflotran.py` | Template PFLOTRAN decks per network (Step B4); also used by `src/deckmod.py` and `src/build_variant.py` |
+| `verify_matrix.py` | Quality control of the DFN library (Step B1) |
 | `slurm/` | Job scripts: DFN generation, deck staging, PFLOTRAN runs, job status |
 | `config/variants.py` | Definitions of the geochemical sensitivity variants |
 | `src/` | Deck building and corrections, run checks, analysis, statistics and figures |
 | `legacy/` | Analyses of the original submission not used in the revised article |
+| `legacy/original/` | Scripts of the original pipeline replaced by the revision (betweenness, XDMF visualization, original figure and run scripts) |
 | `requirements.txt` | Python packages for the analysis |
-| Root `*.py` and `run_local.sh` | Pipeline of the original submission (see the `original` branch) |
 
 This repository hosts source code only. Simulation inputs, reduced HDF5 outputs and DFN meshes (15 GB in `.tar.zst` archives) are deposited on Zenodo.
 
@@ -421,7 +423,7 @@ python3 src/ensemble_statistics_figures.py --out figures                        
 
 ## Folder `legacy/`
 
-Scripts of analyses from the original submission that the revised article does not use (betweenness, connectivity, particle tracking, flow-path profiles, earlier co-location figures). They are kept for reference and expect the folder layout of the original runs.
+Scripts of analyses from the original submission that the revised article does not use (betweenness, connectivity, particle tracking, flow-path profiles, earlier co-location figures). `legacy/original/` holds the scripts of the original pipeline that the revision replaced. They are kept for reference and expect the folder layout of the original runs. The complete original code is on the `original` branch.
 
 ## Citation
 
