@@ -92,32 +92,93 @@ The job scripts were written for Pawsey Setonix and the hpc01/hpc02 clusters. Ad
 
 ### Pipeline
 
-Every deck receives the corrections of `src/apply_corrections.py` (scaled mass rate; mineral volume fractions rescaled once to sum to 1 − porosity, `RESCALE_VF=1`) and `src/fix_gravity_off.py` (gravity off). Two launch routes are used:
+The pipeline has three stages: build the fracture networks and their meshes (Steps B1 to B3), prepare and correct the PFLOTRAN decks (Steps B4 and B5), and run each simulation set (Steps B6 to B12). Step B13 checks the runs.
 
-- **Fixed porosity:** `slurm/run_rt.sh` stages each run from `pflotran_results/` and starts it.
-- **Evolving aperture:** `slurm/build_dirs.sh` builds each run folder (default `--variant feedback`, which adds the porosity-permeability coupling and the porosity floor of 0.01 with `src/add_coupling.py`), and `slurm/run_dirs.sh` starts the folders listed in a file.
+#### Step B1. Original DFN library (25 networks)
 
-#### Step B1. Fracture networks and meshes
-
-**Article results:** Figure 2; Tables S4 and S5; Table S2.
+**Article results:** the networks of the original submission, which the intensity ensemble extends (Section 2.2).
 
 ```bash
+cd $DEPOSIT_ROOT
+python3 prepare_dfn.py matrix        # 5 intensity levels x 5 seeds: dfnWorks generation + LaGriT meshing
+python3 verify_matrix.py             # quality control of the DFN library
+```
+
+For each network, `prepare_dfn.py` generates the fractures with dfnWorks from the fracture-family parameters (Table S4), meshes them with LaGriT, and writes `dfn_library/p32_<level>_s<seed>/`:
+
+| File | Content |
+|---|---|
+| `full_mesh.uge` | unstructured mesh: cell volumes and connections (read by PFLOTRAN) |
+| `full_mesh.inp` | the same mesh in AVS format (visualization) |
+| `boundary_*.ex` | cells on the domain faces (inflow and outflow boundaries) |
+| `dfn_properties.h5` | fracture properties: apertures, permeabilities |
+
+#### Step B2. Networks of the revision (Blocks A, B and D)
+
+**Article results:** the intensity ensemble (10 networks per level), the independent ensemble and the domain-size networks; Figure 2; Tables S4 and S5.
+
+```bash
+cd $DEPOSIT_ROOT/revision
 sbatch --array=0-49 --export=ALL,BLOCK=A slurm/gen_dfn.sh   # intensity ensemble: 5 levels x 10 seeds
-sbatch --array=0-19 --export=ALL,BLOCK=B slurm/gen_dfn.sh   # independent ensemble: 2 levels x 10 seeds
+sbatch --array=0-19 --export=ALL,BLOCK=B slurm/gen_dfn.sh   # independent ensemble: P32 x0.90 and x1.75, 10 seeds each
 sbatch --array=0-15 --export=ALL,BLOCK=D slurm/gen_dfn.sh   # domain size: 30 and 40 m, 8 seeds each
 ```
 
-`gen_dfn.sh` runs `src/extend_matrix.py`, which calls `prepare_dfn.py` to generate each network with dfnWorks, mesh it with LaGriT, and write the mesh (`full_mesh.uge`, boundary files `*.ex`) and a template deck to `dfn_library/` and `pflotran_results/`. Block D needs the patch `01_matrix_ext.patch` applied first. Run `--array=0-49%4` if LaGriT runs short of memory.
-
-Check the percolation of each network:
+`gen_dfn.sh` loads dfnWorks and runs `src/extend_matrix.py`, which wraps `prepare_dfn.py` without changing its matrix logic, so the 25 original networks stay reproducible. Block D needs the one-line patch `01_matrix_ext.patch` to `prepare_dfn.py` applied first. Add `%4` to the array (for example `--array=0-49%4`) if LaGriT runs short of memory. To list or test a block without generating it:
 
 ```bash
-python3 src/check_percolation.py
+python3 src/extend_matrix.py --block A --dry
 ```
 
-The network `p32_200_s941` does not percolate and is replaced by `p32_200_s117`: array index 43 is skipped and `--extra p32_200_s117` is added in the build steps below.
+#### Step B3. Percolation check of the networks
 
-#### Step B2. Intensity ensemble (50 networks)
+**Article results:** Table S2.
+
+```bash
+python3 src/check_percolation.py --csv percolation.csv
+```
+
+The check reads the archived metadata only. A network without an outflow boundary (`boundary_right_e.ex` with fewer than two lines) runs as a closed system. The network `p32_200_s941` does not percolate and is replaced by `p32_200_s117`: array index 43 is skipped and `--extra p32_200_s117` is added in the build steps below.
+
+#### Step B4. Template decks
+
+**Article results:** the model setup of Section 2.3 (Table 1, Table S1).
+
+```bash
+cd $DEPOSIT_ROOT
+python3 run_pflotran.py --dfn all --write_only      # one PFLOTRAN deck per network in pflotran_results/
+```
+
+Each template deck `pflotran_results/p32_<level>_s<seed>/pflotran_co2.in` sets the Richards flow and GIRT reactive transport, the mineral assemblage and kinetics (Table 1), the formation water and the injectate (`CONSTRAINT basalt_brine` and `co2_rich_water`, Table S1), 50 °C and 5 MPa, the injection region (left 20% of the domain) and the uniform-pressure outflow boundary.
+
+#### Step B5. Deck corrections (applied to every run)
+
+**Article results:** the corrected model of the revision (Section 2.3); every result of the article.
+
+The launchers apply these corrections to each deck before PFLOTRAN starts. They can also be run by hand on a staged deck:
+
+| Correction | Script | What it changes |
+|---|---|---|
+| Injection rate | `src/apply_corrections.py` | `RATE MASS_RATE` becomes `RATE SCALED_MASS_RATE VOLUME`, so the stated rate is the total over the injection region rather than a rate per cell |
+| Porosity and mineral volume fractions | `src/apply_corrections.py` with `RESCALE_VF=1` | the primary-mineral volume fractions are rescaled once so that they sum to 1 − φ = 0.50 for a fracture porosity of 0.50 (previously 0.85) |
+| Gravity | `src/fix_gravity_off.py` | `GRAVITY 0.d0 0.d0 0.d0`, so the uniform-pressure outflow boundary drives no circulation, and the database paths |
+| Porosity-permeability coupling (evolving aperture only) | `src/add_coupling.py` | `UPDATE_POROSITY`, `UPDATE_PERMEABILITY`, permeability power 3, critical porosity 0.01, minimum scale factor 1e-6, and a porosity floor `MINIMUM_POROSITY 0.01` |
+| Injection stop (shut-in and duration runs) | `src/add_shutin.py` | the injection rate drops to zero after the given time |
+| Evolving surface areas (Step B12 only) | `src/add_surface_area.py` | `SURFACE_AREA_FUNCTION` for the primary and secondary minerals |
+
+Check a deck after the corrections:
+
+```bash
+python3 src/check_porosity_and_vf.py      # porosity setting and volume-fraction sum of the decks
+grep -i "GRAVITY\|SCALED_MASS_RATE\|UPDATE_POROSITY\|MINIMUM_POROSITY" <run folder>/pflotran_co2.in
+```
+
+Two launch routes are used:
+
+- **Fixed porosity:** `slurm/run_rt.sh` stages each run from `pflotran_results/`, applies the corrections and starts PFLOTRAN.
+- **Evolving aperture:** `slurm/build_dirs.sh` builds each run folder with the corrections and the coupling (default `--variant feedback`), and `slurm/run_dirs.sh` starts the folders listed in a file.
+
+#### Step B6. Intensity ensemble (50 networks)
 
 **Article results:** Sections 3.1 to 3.4; Figures 3 to 8; Tables 2, S6, S7 and S8; Figures S1 to S4; Key Points 1 and 2.
 
@@ -130,7 +191,7 @@ ls -d runs_gravityoff/A_feedback__* | sed 's#^runs_gravityoff/##' > lists/A_feed
 sbatch --array=0-49 --export=ALL,LIST=lists/A_feedback.txt slurm/run_dirs.sh
 ```
 
-#### Step B3. Independent ensemble (20 networks)
+#### Step B7. Independent ensemble (20 networks)
 
 **Article results:** the independent test of the intensity trends (Section 3.4).
 
@@ -141,7 +202,7 @@ ls -d runs_gravityoff/B_feedback__* | sed 's#^runs_gravityoff/##' > lists/B_feed
 sbatch --array=0-19 --export=ALL,LIST=lists/B_feedback.txt slurm/run_dirs.sh
 ```
 
-#### Step B4. Domain size (16 networks)
+#### Step B8. Domain size (16 networks)
 
 **Article results:** the domain-size test (Section 3.4).
 
@@ -154,7 +215,7 @@ sbatch --array=0-7 --ntasks=64  --mem=112G --export=ALL,LIST=lists/D30_feedback.
 sbatch --array=0-7 --ntasks=128 --mem=224G --export=ALL,LIST=lists/D40_feedback.txt slurm/run_dirs.sh
 ```
 
-#### Step B5. Shut-in after 10 years (50 paired networks)
+#### Step B9. Shut-in after 10 years (50 paired networks)
 
 **Article results:** Section 3.5; Key Point 3; the shut-in results of the Abstract and Conclusions.
 
@@ -173,7 +234,7 @@ ls -d runs_verify_shutin/* > lists/verify.txt
 sbatch --array=0-2 --export=ALL,LIST=lists/verify.txt slurm/run_dirs.sh
 ```
 
-#### Step B6. Injection duration (1 network, 6 durations)
+#### Step B10. Injection duration (1 network, 6 durations)
 
 **Article results:** Table 3; Sections 3.5 and 4.2.
 
@@ -195,7 +256,7 @@ sbatch --array=0-5 --export=ALL,LIST=lists/F_all_fixed.txt slurm/run_dirs.sh
 
 The 10-year and 50-year durations are the E and A runs of steps B5 and B2.
 
-#### Step B7. Geochemical sensitivity (16 variants, 25 reference networks)
+#### Step B11. Geochemical sensitivity (16 variants, 25 reference networks)
 
 **Article results:** Section 3.6 (surface areas, anorthite surface area, secondary minerals, seed volume fraction, dawsonite rate, dawsonite removal, analcime).
 
@@ -216,7 +277,7 @@ sbatch --array=0-$(($(wc -l < lists/C_feedback.txt)-1)) --export=ALL,LIST=lists/
 
 The 4 cases of the variant `feedback` are already coupled and get no twin, giving 65 coupled decks.
 
-#### Step B8. Evolving surface areas (10 networks)
+#### Step B12. Evolving surface areas (10 networks)
 
 **Article results:** the evolving-surface-area test (Section 3.6).
 
@@ -230,7 +291,7 @@ ls -d runs_gravityoff/S[01]_feedback__* | sed 's#^runs_gravityoff/##' > lists/S.
 sbatch --array=0-19 --export=ALL,LIST=lists/S.txt slurm/run_dirs.sh
 ```
 
-#### Step B9. Check the runs
+#### Step B13. Check the runs
 
 ```bash
 bash slurm/status.sh                                          # job states
@@ -336,26 +397,26 @@ python3 src/prepare_figure_inputs.py
 python3 src/ensemble_statistics_figures.py --out figures                                             # figures of the response letter
 ```
 
-`generate_figures.py --only <n>` regenerates a single figure. Figure 2 needs the DFN library of step B1.
+`generate_figures.py --only <n>` regenerates a single figure. Figure 2 needs the DFN library of Steps B1 and B2.
 
 ## Map of the article results
 
 | Article item | Simulation step | Post-processing step | Output |
 |---|---|---|---|
 | Figure 1 | — | C9 `fig_study_design.py` | `figures/fig_study_design.pdf` |
-| Figure 2, Tables S4, S5 | B1 | C9 `generate_figures.py` | `figures/` |
-| Table S2 | B1 | `check_percolation.py` | `runs_gravityoff/registry.json` |
-| Section 3.1 | B2 | C2 `ph_statistics.py` | printed |
-| Section 3.2, Figure 4 | B2 | C1, C3 | `A_coupled_by_intensity.csv` |
-| Section 3.3, Figure 6, Key Point 2 | B2 | C4 | `colocation_mapping_*.csv`, `local_cation_balance*.csv` |
-| Table S3 | B2 | C4 `check_redissolution.py` | printed |
-| Table 2 | B2 | C1 | `A_coupled_by_intensity.csv`, `figure_input_blockA.csv` |
-| Tables S6, S7 | B2 | C1 | `A_coupled_networks.csv` |
-| Table S8 | B2 | C1 | `A_fixed_*.csv`, `A_coupled_*.csv` |
-| Section 3.4, Figure 7, Key Point 1 | B2, B3, B4 | C1, C5 | `intensity_trend_tests.csv`, `volume_effect.csv`, `domain_size_variability.csv` |
-| Section 3.5, Table 3, Key Point 3 | B2, B5, B6 | C1, C6 | `injection_duration.csv`, `shutin_*.csv`, `E_coupled_*.csv` |
-| Section 3.6 | B7, B8 | C7 | `sensitivity_ratios.csv`, `anorthite_surface_area.csv`, `shrinking_surface_ratios.csv`, `silicate_regrowth.csv` |
-| Figure 3, Figure 5, Figure 8, Figures S1 to S4 | B2 | C9 `generate_figures.py` | `figures/` |
+| Figure 2, Tables S4, S5 | B1, B2 | C9 `generate_figures.py` | `figures/` |
+| Table S2 | B3 | `check_percolation.py` | `runs_gravityoff/registry.json` |
+| Section 3.1 | B6 | C2 `ph_statistics.py` | printed |
+| Section 3.2, Figure 4 | B6 | C1, C3 | `A_coupled_by_intensity.csv` |
+| Section 3.3, Figure 6, Key Point 2 | B6 | C4 | `colocation_mapping_*.csv`, `local_cation_balance*.csv` |
+| Table S3 | B6 | C4 `check_redissolution.py` | printed |
+| Table 2 | B6 | C1 | `A_coupled_by_intensity.csv`, `figure_input_blockA.csv` |
+| Tables S6, S7 | B6 | C1 | `A_coupled_networks.csv` |
+| Table S8 | B6 | C1 | `A_fixed_*.csv`, `A_coupled_*.csv` |
+| Section 3.4, Figure 7, Key Point 1 | B6, B7, B8 | C1, C5 | `intensity_trend_tests.csv`, `volume_effect.csv`, `domain_size_variability.csv` |
+| Section 3.5, Table 3, Key Point 3 | B6, B9, B10 | C1, C6 | `injection_duration.csv`, `shutin_*.csv`, `E_coupled_*.csv` |
+| Section 3.6 | B11, B12 | C7 | `sensitivity_ratios.csv`, `anorthite_surface_area.csv`, `shrinking_surface_ratios.csv`, `silicate_regrowth.csv` |
+| Figure 3, Figure 5, Figure 8, Figures S1 to S4 | B6 | C9 `generate_figures.py` | `figures/` |
 | Platform checks (Section 2) | repeated runs | C8 | `platform_comparison.csv` |
 
 ## Folder `legacy/`
