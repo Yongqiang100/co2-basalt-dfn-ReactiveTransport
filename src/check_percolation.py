@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Percolation / outflow-boundary audit -- runs on ARCHIVED METADATA ONLY.
+Percolation / outflow-boundary check -- runs on ARCHIVED METADATA ONLY.
 
 Why this matters
 ----------------
@@ -20,8 +20,8 @@ condition rather than a clause in section 2.3.2.
 
 Usage
 -----
-    python3 src/audit.py                     # table + confound test
-    python3 src/audit.py --csv audit.csv     # also write the SI table
+    python3 src/check_percolation.py                     # table + confound test
+    python3 src/check_percolation.py --csv percolation.csv     # also write the SI table
 """
 from __future__ import annotations
 import os, sys, json, glob, argparse, csv
