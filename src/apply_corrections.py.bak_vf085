@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""Apply the mandatory deck corrections to a staged PFLOTRAN deck.
+
+Called by run_rt.sh for EVERY run on every block, so Blocks A/B/D -- which take
+the plain staging path with no variant ops -- get the same corrections as the
+Block C variants.
+
+1. RATE MASS_RATE -> RATE SCALED_MASS_RATE VOLUME
+   MASS_RATE is applied PER CELL over a SOURCE_SINK region (condition.F90:1260):
+   13,471 injection cells turn 0.01 kg/s into 134.7 kg/s. Across the ensemble
+   the effective rate spanned 2.36 to 7820 kg/s, a 3313x range correlated with
+   mesh size. TOTAL_MASS_RATE parses but is not implemented for Richards mode.
+
+2. FLOW NEWTON_SOLVER ATOL 1.d-6 -> 1.d-4
+   With corrected volumes the flow residual stagnates at 2r ~ 1.39e-6 against a
+   solution norm 2x ~ 2.01e9 -- relative residual 7e-16, machine precision --
+   while the infinity norm (6.04e-8) is already inside 1.d-6. The solve
+   converges and fails only an absolute test whose floor scales with the
+   solution norm, so meshes above ~100k cells never complete a timestep.
+
+3. FLOW MAXIMUM_NUMBER_OF_ITERATIONS 25 -> 250
+   The published deck gives flow 25 against transport's 250.
+
+Idempotent.
+"""
+import sys, os, re
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from deckmod import Deck, DeckError
+
+
+TARGET_PORE_VOLUMES = 4000.0   # displaced over the 50-year simulation
+PHI                 = 0.50     # fracture porosity
+RHO                 = 988.0    # kg/m3, water at 50 C
+SIM_SECONDS         = 50.0 * 3.156e7
+
+
+def pore_volume(run_dir="."):
+    """Fracture pore volume from the aperture-corrected mesh."""
+    uge = os.path.join(run_dir, "full_mesh.uge")
+    if not os.path.isfile(uge):
+        return None
+    with open(uge) as f:
+        n = int(f.readline().split()[1])
+        tot = 0.0
+        for _ in range(n):
+            tot += float(f.readline().split()[4])
+    return tot * PHI
+
+
+def has_explicit_schedule(deck):
+    """True if a variant has already set the injection schedule.
+
+    Detected by a zero rate following a positive one, i.e. a shut-in. Those
+    variants specify magnitude and timing deliberately and must not be
+    overwritten.
+    """
+    m = re.search(r"RATE LIST(.*?)\n\s*/", deck.text, re.S)
+    if not m:
+        return False
+    rows = []
+    for line in m.group(1).splitlines():
+        p_ = line.split()
+        if len(p_) == 2:
+            try:
+                rows.append((float(p_[0].replace("d", "e")),
+                             float(p_[1].replace("d", "e"))))
+            except ValueError:
+                continue
+    seen_positive = False
+    for _, r in rows:
+        if r > 0:
+            seen_positive = True
+        elif seen_positive and r == 0:
+            return True
+    return False
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit("usage: apply_corrections.py <deck.in>")
+    path = sys.argv[1]
+    d = Deck.from_file(path)
+    before = d.text
+    applied, skipped = [], []
+
+    if re.search(r"^\s*RATE\s+MASS_RATE\s*$", d.text, re.M):
+        d.set_rate_type("SCALED_MASS_RATE VOLUME")
+        applied.append("RATE -> SCALED_MASS_RATE VOLUME")
+    else:
+        skipped.append("rate type already set")
+
+    for key, val, label in (("ATOL", "1.d-4", "flow ATOL -> 1.d-4"),
+                            ("MAXIMUM_NUMBER_OF_ITERATIONS", "250",
+                             "flow Newton iterations -> 250")):
+        try:
+            d.set_solver_value("FLOW", "NEWTON_SOLVER", key, val)
+            applied.append(label)
+        except DeckError as e:
+            skipped.append(f"{key}: {str(e).split(']')[-1].strip()[:50]}")
+
+    # 4. injection rate scaled by FRACTURE PORE VOLUME
+    #
+    # The submitted design scaled the rate by the bounding domain volume, which
+    # does not equalise the fluid-to-rock ratio because fracture pore volume
+    # varies independently of it -- 0.76 to 8.26 m3 across the ensemble. Sparse
+    # networks were consequently flushed 8454 times over the simulation against
+    # 1932 for dense ones, and pore volumes flushed correlates with P32 at
+    # rho = -0.972. The dissolution and pH differences reported across intensity
+    # levels were therefore a fluid-to-rock ratio effect, not a connectivity
+    # effect. Scaling by pore volume equalises the ratio by construction.
+    if has_explicit_schedule(d):
+        skipped.append("rate schedule set by variant, left unchanged")
+    else:
+        pv = pore_volume(os.path.dirname(os.path.abspath(path)) or ".")
+        if pv is None:
+            skipped.append("full_mesh.uge not found, rate unchanged")
+        else:
+            rate = TARGET_PORE_VOLUMES * pv * RHO / SIM_SECONDS
+            d.set_rate_schedule([(0.0, 0.0), (1e-4, rate / 10.0), (1e-2, rate)])
+            applied.append(f"rate -> {rate:.6e} kg/s "
+                           f"({TARGET_PORE_VOLUMES:.0f} PV, pore {pv:.3f} m3)")
+
+    if not applied:
+        print("  corrections: none needed"); return
+
+    for pat, why in ((r"^\s*RATE\s+SCALED_MASS_RATE VOLUME\s*$", "rate type"),
+                     (r"^\s*ATOL\s+1\.d-4\s*$", "flow ATOL"),
+                     (r"^\s*MAXIMUM_NUMBER_OF_ITERATIONS\s+250\s*$", "iterations")):
+        if not re.search(pat, d.text, re.M):
+            sys.exit(f"FATAL: {why} not present after edit -- deck NOT written")
+
+    ts  = re.search(r"NUMERICAL_METHODS TRANSPORT.*?^END", d.text, re.M | re.S)
+    tsb = re.search(r"NUMERICAL_METHODS TRANSPORT.*?^END", before, re.M | re.S)
+    if ts and tsb and ts.group(0) != tsb.group(0):
+        sys.exit("FATAL: TRANSPORT solver block modified -- deck NOT written")
+
+    open(path, "w").write(d.text)
+    for a in applied: print(f"  corrected: {a}")
+    for s in skipped: print(f"  skipped  : {s}")
+
+if __name__ == "__main__":
+    main()
