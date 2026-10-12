@@ -198,12 +198,48 @@ def generate_single_dfn(config, output_name, seed):
     cwd_save = os.getcwd()
     os.chdir(jobname)
     try:
-        DFN2 = DFNWORKS(jobname=jobname, ncpu=1)
-        DFN2.inp_file = 'full_mesh.inp'
-        DFN2.uge_file = 'full_mesh.uge'
-        DFN2.flow_solver = 'PFLOTRAN'
-        DFN2.h = config["h"]
-        DFN2.zone2ex(zone_file='all', boundary_cell_area=1.e-1)
+        # --- apertures -------------------------------------------------
+        # add_fracture_family(hy_function="log-normal") does not populate
+        # DFN.aperture: nFracFam reads 0 after dfn_gen(), so the assignment
+        # loop at process_generator_output.py:213 never runs and the array
+        # stays NaN. Assign directly from the Table 1 family parameters with a
+        # seeded generator (the internal draw is unseeded in this build).
+        import numpy as _np
+        _rng = _np.random.default_rng(seed)
+        _fam_id = _np.asarray(DFN.families, dtype=int)
+        _mu = _np.array([config[f"family{f}"]["aperture_mu"] for f in _fam_id])
+        _sd = _np.array([config[f"family{f}"]["aperture_sigma"] for f in _fam_id])
+        _b = _np.exp(_rng.normal(_mu, _sd))
+        DFN.aperture = _b
+        DFN.perm = _b ** 2 / 12.0          # cubic law
+        DFN.transmissivity = DFN.perm * _b
+        DFN.cell_based_aperture = False     # apertures are per fracture
+
+        # --- PFLOTRAN conversion ---------------------------------------
+        # lagrit2pflotran() runs zone2ex(boundary_cell_area=1/h),
+        # dump_h5_files() and correct_uge_file() in order. Calling zone2ex()
+        # alone left LaGriT's surface AREAS in the .uge as if they were
+        # volumes -- a factor of ~1/aperture. Verified against the dfnWorks
+        # TPL example: full_mesh.uge sums to 1.1016e+03 (area),
+        # full_mesh_vol_area.uge to 2.4654e-02 (volume).
+        DFN.inp_file = 'full_mesh.inp'
+        DFN.uge_file = 'full_mesh.uge'
+        DFN.flow_solver = 'PFLOTRAN'
+        DFN.lagrit2pflotran()
+
+        # the corrected mesh carries the _vol_area suffix; the deck reads
+        # full_mesh.uge, so keep the original and swap in the corrected one
+        if os.path.exists('full_mesh_vol_area.uge'):
+            shutil.move('full_mesh.uge', 'full_mesh_area_uncorrected.uge')
+            shutil.copy('full_mesh_vol_area.uge', 'full_mesh.uge')
+            summary["uge_corrected"] = True
+            summary["aperture_mean_m"] = float(_b.mean())
+            summary["aperture_min_m"] = float(_b.min())
+            summary["aperture_max_m"] = float(_b.max())
+        else:
+            summary["uge_corrected"] = False
+            print("  WARNING: full_mesh_vol_area.uge not written -- "
+                  "volumes remain uncorrected")
 
         import glob
         ex_files = glob.glob("*.ex")

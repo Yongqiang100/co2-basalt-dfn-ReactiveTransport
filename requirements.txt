@@ -11,7 +11,7 @@ matplotlib>=3.5
 h5py>=3.6
 
 # Graph analysis (used by compute_betweenness.py and stress_test_analysis.py)
-networkx>=2.8
+# networkx>=2.8    # optional: only for the betweenness scripts in legacy/
 
 # NOTE: dfnWorks and PFLOTRAN are NOT installed via pip — they are external
 # applications. Install separately:

@@ -1,0 +1,9 @@
+runs*/
+results/
+figures*/
+figs/
+zenodo_R1/
+*.h5
+*.out
+*.log
+__pycache__/

@@ -1,0 +1,121 @@
+#!/bin/bash
+# Reactive-transport array launcher for the revision run set.
+#   sbatch --array=0-19%6 --export=ALL,BLOCK=B slurm/run_rt.sh
+#   sbatch --array=0-28%6 --export=ALL,BLOCK=C slurm/run_rt.sh
+#   sbatch --array=0-49%6 --export=ALL,BLOCK=A slurm/run_rt.sh
+#   sbatch --array=0-7%6  --export=ALL,BLOCK=D30 slurm/run_rt.sh
+#   sbatch --array=0-7%2 --mem=40G --ntasks=12 --export=ALL,BLOCK=D40 slurm/run_rt.sh
+# Every run is validated from its HDF5 output, not from the exit code.
+#SBATCH --job-name=rt
+#SBATCH --partition=normal
+#SBATCH --nodes=1
+#SBATCH --cpus-per-task=1
+#SBATCH --hint=nomultithread
+#SBATCH --ntasks=4
+#SBATCH --mem=24G
+#SBATCH --time=48:00:00
+#SBATCH --output=rt-%A_%a.out
+
+set -uo pipefail
+
+if   [[ -n "${DEPOSIT_ROOT:-}" ]]; then :
+elif [[ -f "$SLURM_SUBMIT_DIR/prepare_dfn.py" ]];    then DEPOSIT_ROOT="$SLURM_SUBMIT_DIR"
+elif [[ -f "$SLURM_SUBMIT_DIR/../prepare_dfn.py" ]]; then DEPOSIT_ROOT="$(cd "$SLURM_SUBMIT_DIR/.." && pwd)"
+else echo "FATAL: prepare_dfn.py not found; set DEPOSIT_ROOT"; exit 1; fi
+export DEPOSIT_ROOT
+REVDIR="$DEPOSIT_ROOT/revision"
+cd "$DEPOSIT_ROOT"
+source "$REVDIR/slurm/env.sh"
+
+BLOCK=${BLOCK:?set BLOCK=A|B|C|D30|D40}
+IDX=${SLURM_ARRAY_TASK_ID:-0}
+RANKS=${SLURM_NTASKS:-4}
+
+SPEC=$("$PY" "$REVDIR/src/blocks.py" --block "$BLOCK" --index "$IDX") || {
+    echo "FATAL: blocks.py could not resolve BLOCK=$BLOCK index=$IDX"; exit 1; }
+RUN_ID=$(echo "$SPEC"   | cut -f1)
+DFN_CASE=$(echo "$SPEC" | cut -f2)
+RUN_DIR=$(echo "$SPEC"  | cut -f3)
+VARIANT=$(echo "$SPEC"  | cut -f4)
+VCASE=$(echo "$SPEC"    | cut -f5)
+
+echo "=================================================="
+echo " run_id  : $RUN_ID"
+echo " dfn     : $DFN_CASE"
+echo " dir     : $RUN_DIR"
+echo " variant : ${VARIANT:-none}"
+echo " ranks   : $RANKS   mem: ${SLURM_MEM_PER_NODE:-?}M"
+echo " started : $(date)"
+echo "=================================================="
+
+mkdir -p "$RUN_DIR"
+
+if [[ -n "$VARIANT" && "$VARIANT" != "-" ]]; then
+    "$PY" "$REVDIR/src/build_variant.py" --variant "$VARIANT" --index "$VCASE" || {
+        echo "FATAL: variant build failed"; exit 1; }
+else
+    "$PY" run_pflotran.py --dfn "$DFN_CASE" --write_only || {
+        echo "FATAL: staging failed"; exit 1; }
+    STAGED="$DEPOSIT_ROOT/pflotran_results/$DFN_CASE"
+    for f in "$STAGED"/*.in "$STAGED"/*.uge "$STAGED"/*.inp "$STAGED"/*.ex "$STAGED"/*.dat; do
+        [[ -e "$f" ]] && { [[ -e "$RUN_DIR/$(basename "$f")" ]] || cp "$f" "$RUN_DIR"/; }
+    done
+fi
+
+# The DATASET block references dfn_properties.h5 (per-cell permeability from
+# lagrit2pflotran's dump_h5_files). run_pflotran.py does not stage .h5 files.
+if [[ -f "$DEPOSIT_ROOT/dfn_library/$DFN_CASE/dfn_properties.h5" ]]; then
+    cp -f "$DEPOSIT_ROOT/dfn_library/$DFN_CASE/dfn_properties.h5" "$RUN_DIR"/
+    echo " staged  : dfn_properties.h5"
+fi
+cd "$RUN_DIR" || { echo "FATAL: $RUN_DIR missing"; exit 1; }
+INPUT=$(ls *.in 2>/dev/null | head -1)
+[[ -n "$INPUT" ]] || { echo "FATAL: no deck in $RUN_DIR"; exit 1; }
+# Remove stale output. A partial .h5 from a cancelled attempt would be read by
+# validate_run.py if this run fails to launch, reporting "done" on old data.
+rm -f "${INPUT%.in}".h5 "${INPUT%.in}"-*.h5 pflotran.log
+# Mandatory corrections, applied to EVERY run on every block. Blocks A/B/D
+# take the plain staging path with no variant ops, so without this they would
+# run with MASS_RATE (per-cell) and the unreachable flow ATOL.
+"$PY" "$REVDIR/src/apply_corrections.py" "$INPUT" || {
+    echo "FATAL: deck corrections failed"; exit 1; }
+
+NCELLS=$(awk 'NR==1{print $2}' full_mesh.uge)
+echo " deck    : $INPUT   cells: $NCELLS"
+[[ -f boundary_right_e.ex ]] || echo " WARNING: no outflow boundary -- CLOSED SYSTEM"
+
+SECONDS=0
+srun --mpi=pmix -n "$RANKS" pflotran -input_prefix "${INPUT%.in}" \
+     > pflotran.log 2>&1
+RC=$?
+WALL=$SECONDS
+echo " pflotran exit=$RC  wall=${WALL}s"
+tail -5 pflotran.log
+
+echo "--- validation ---"
+# Block C variants are SUPPOSED to differ from the published value -- that is the
+# whole point of a sensitivity run. Comparing them against the archive would
+# exit 2 and mark every one of them failed. Only plain runs get --case.
+if [[ -n "$VARIANT" && "$VARIANT" != "-" ]]; then
+    "$PY" "$REVDIR/src/validate_run.py" "${INPUT%.in}.h5"
+else
+    "$PY" "$REVDIR/src/validate_run.py" "${INPUT%.in}.h5" --case "$DFN_CASE"
+fi
+VRC=$?
+STATE=$([[ $VRC -eq 0 ]] && echo done || echo failed)
+
+"$PY" - <<PYEOF
+import sys; sys.path.insert(0, "$REVDIR/src")
+import registry
+registry.REG = "$REVDIR/runs/registry.json"
+registry.upsert("$RUN_ID", block="$BLOCK", case="$DFN_CASE",
+                variant="${VARIANT:-}", run_dir="$RUN_DIR",
+                state="$STATE", ranks=$RANKS, wall_s=$WALL,
+                n_cells=int("$NCELLS"), pflotran_rc=$RC, validate_rc=$VRC)
+PYEOF
+
+printf "%-34s %-16s cells=%-8s ranks=%-3s wall=%-7s %s\n" \
+    "$RUN_ID" "$DFN_CASE" "$NCELLS" "$RANKS" "${WALL}s" "$STATE" \
+    >> "$DEPOSIT_ROOT/run_results.txt"
+echo " -> $STATE"
+[[ "$STATE" == "done" ]] || exit 1
