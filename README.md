@@ -4,7 +4,7 @@ Source code for:
 
 > Chen, Y., Xie, Q., Kang, Q., & Regenauer-Lieb, K. (2026). Fracture network and geochemical controls on CO₂ mineral trapping in basalt: A stochastic reactive transport study. *Water Resources Research*. DOI: [pending]
 
-This repository contains the source code used to generate the simulations and analyses presented in the article. The simulation outputs, DFN meshes, and a copy of the source code are archived on Zenodo: [10.5281/zenodo.20047873](https://doi.org/10.5281/zenodo.20047873).
+This repository contains the source code used to generate the simulations and analyses presented in the article. The simulation outputs, DFN meshes, and a copy of the source code are archived on Zenodo: [10.5281/zenodo.23210237](https://doi.org/10.5281/zenodo.23210237).
 
 ## Repository Branches: Revised and Original Code
 
@@ -50,9 +50,7 @@ git clone -b Revision1 https://github.com/Yongqiang100/co2-basalt-dfn-ReactiveTr
 cd revision
 pip install -r requirements.txt
 # download the archives from Zenodo into this folder, then unpack
-for f in runs_gravityoff runs_gravityoff_setonix_overlap runs_verify_shutin runs_gravityoff_prefloor archive_hpc01 results; do
-  zstd -d --long=31 -c $f.tar.zst | tar -xf -
-done
+7z x co2basalt_data_v2.0-R1.7z.001      # extracts all volumes of the data archive (7-Zip)
 ```
 
 Then run the steps in [Post-Processing](#post-processing-simulation-outputs-to-article-figures-tables-and-results).
@@ -61,7 +59,7 @@ Then run the steps in [Post-Processing](#post-processing-simulation-outputs-to-a
 
 Full reproduction of the simulations requires the following external software:
 
-- **dfnWorks** (v2.7, with LaGriT): <https://github.com/lanl/dfnWorks>
+- **dfnWorks** (v2.10.1, with LaGriT): <https://github.com/lanl/dfnWorks>
 - **PFLOTRAN** (v6) built with PETSc, with the databases `hanford.dat` and `co2_sw.dat`: <https://www.pflotran.org>
 - An MPI runtime and Slurm
 
@@ -466,7 +464,7 @@ Use of the source code or associated data should cite both the article and the Z
                on {CO_2} mineral trapping in basalt},
   year      = {2026},
   publisher = {Zenodo},
-  doi       = {10.5281/zenodo.20047873}
+  doi       = {10.5281/zenodo.23210237}
 }
 ```
 
@@ -480,7 +478,6 @@ Apache License, Version 2.0.
 |---|---|---|
 | [dfnWorks](https://github.com/lanl/dfnWorks) | BSD 3-Clause | Hyman et al. (2015) |
 | [PFLOTRAN](https://www.pflotran.org) | BSD 3-Clause | Lichtner et al. (2015) |
-| [NetworkX](https://networkx.org/) | BSD 3-Clause | Hagberg et al. (2008) |
 
 ## Funding
 
